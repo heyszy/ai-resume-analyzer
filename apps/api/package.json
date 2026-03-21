@@ -1,0 +1,34 @@
+{
+  "name": "@ai-resume-analyzer/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.47",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/env": "^5.0.3",
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/sensible": "^6.0.4",
+    "@fastify/sse": "^0.4.0",
+    "@neondatabase/serverless": "^1.0.2",
+    "@vercel/blob": "^2.3.1",
+    "@ai-resume-analyzer/shared": "workspace:*",
+    "ai": "^6.0.134",
+    "drizzle-orm": "^0.45.1",
+    "fastify": "^5.8.2",
+    "fastify-type-provider-zod": "^6.1.0",
+    "pdf-parse": "^2.4.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}
