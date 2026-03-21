@@ -1,2 +1,1 @@
-// 共享包入口在初始化阶段只保留骨架，具体契约后续补充。
-export {};
+export * from "./contracts";
