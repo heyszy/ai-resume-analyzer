@@ -9,16 +9,37 @@ import {
   uuidSchema,
 } from "./common";
 
+const jobDescriptionTextSchema = z.string().trim().min(1);
+const jobDescriptionSkillSchema = z.string().trim().min(1);
+const jobDescriptionSkillListSchema = z.array(jobDescriptionSkillSchema);
+
 export const jobDescriptionInputSchema = z.object({
-  title: z.string().min(1),
-  description: z.string().min(1),
-  requiredSkills: z.array(z.string().min(1)).default([]),
-  bonusSkills: z.array(z.string().min(1)).default([]),
+  title: jobDescriptionTextSchema,
+  description: jobDescriptionTextSchema,
+  requiredSkills: jobDescriptionSkillListSchema.default([]),
+  bonusSkills: jobDescriptionSkillListSchema.default([]),
   isActive: z.boolean().default(false),
 });
 
-export const jobDescriptionSchema = jobDescriptionInputSchema.extend({
+export const jobDescriptionUpdateBodySchema = z
+  .object({
+    title: jobDescriptionTextSchema.optional(),
+    description: jobDescriptionTextSchema.optional(),
+    requiredSkills: jobDescriptionSkillListSchema.optional(),
+    bonusSkills: jobDescriptionSkillListSchema.optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine((value) => Object.values(value).some((field) => typeof field !== "undefined"), {
+    message: "至少需要提供一个更新字段。",
+  });
+
+export const jobDescriptionSchema = z.object({
   id: uuidSchema,
+  title: jobDescriptionTextSchema,
+  description: jobDescriptionTextSchema,
+  requiredSkills: jobDescriptionSkillListSchema,
+  bonusSkills: jobDescriptionSkillListSchema,
+  isActive: z.boolean(),
   status: jobDescriptionStatusSchema,
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -38,8 +59,12 @@ export const jobDescriptionListResponseSchema = z.object({
   total: z.number().int().nonnegative(),
 });
 
+export const jobDescriptionDetailResponseSchema = jobDescriptionSchema;
+
 export const jobDescriptionCreateResponseSchema = jobDescriptionSchema;
 
 export const jobDescriptionUpdateResponseSchema = jobDescriptionSchema;
+
+export const jobDescriptionDeleteResponseSchema = jobDescriptionSchema;
 
 export const jobDescriptionNotImplementedResponseSchema = apiErrorSchema;
