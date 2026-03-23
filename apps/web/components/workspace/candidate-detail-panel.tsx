@@ -1,4 +1,4 @@
-import { AlertTriangle, FileText, TextQuote, Trash2 } from "lucide-react";
+import { AlertTriangle, FileText, PencilLine, TextQuote, Trash2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useState } from "react";
 
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { getCandidateFileUrl } from "@/lib/candidates";
 
+import { CandidateProfileEditorDialog } from "./candidate-profile-editor-dialog";
 import {
   getCandidateStatusLabel,
   type WorkspaceCandidate,
@@ -35,6 +36,11 @@ type CandidateDetailPanelProps = {
   candidate: CandidateDetailView | null;
   isUpdatingStatus: boolean;
   onStatusChange: (status: WorkspaceCandidateStatus) => void;
+  isUpdatingProfile: boolean;
+  onUpdateProfile: (
+    candidateId: string,
+    payload: import("@/lib/candidates").CandidateProfileUpdateInput,
+  ) => Promise<void>;
   isDeletingCandidate: boolean;
   onDeleteCandidate: (candidateId: string) => Promise<void>;
   isLoading: boolean;
@@ -45,6 +51,8 @@ export function CandidateDetailPanel({
   candidate,
   isUpdatingStatus,
   onStatusChange,
+  isUpdatingProfile,
+  onUpdateProfile,
   isDeletingCandidate,
   onDeleteCandidate,
   isLoading,
@@ -58,6 +66,13 @@ export function CandidateDetailPanel({
     value: "analysis",
   });
   const [deleteDialogState, setDeleteDialogState] = useState<{
+    candidateId: string | null;
+    open: boolean;
+  }>({
+    candidateId: null,
+    open: false,
+  });
+  const [editorDialogState, setEditorDialogState] = useState<{
     candidateId: string | null;
     open: boolean;
   }>({
@@ -88,6 +103,8 @@ export function CandidateDetailPanel({
   const activeTab = activeTabState.candidateId === candidateId ? activeTabState.value : "analysis";
   const isDeleteDialogOpen =
     deleteDialogState.candidateId === candidateId && deleteDialogState.open;
+  const isEditorDialogOpen =
+    editorDialogState.candidateId === candidateId && editorDialogState.open;
 
   async function handleConfirmDelete() {
     await onDeleteCandidate(candidateId);
@@ -102,10 +119,22 @@ export function CandidateDetailPanel({
             {candidate.displayName}
           </h2>
           <div className="flex w-full max-w-[360px] items-center justify-end gap-2">
+            {"profile" in candidate ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 px-3"
+                disabled={isUpdatingProfile || isUpdatingStatus || isDeletingCandidate}
+                onClick={() => setEditorDialogState({ candidateId, open: true })}
+              >
+                <PencilLine className="size-4" />
+                编辑简历
+              </Button>
+            ) : null}
             <Select
               value={candidate.status}
               onValueChange={(value) => onStatusChange(value as WorkspaceCandidateStatus)}
-              disabled={isUpdatingStatus || isDeletingCandidate}
+              disabled={isUpdatingStatus || isUpdatingProfile || isDeletingCandidate}
             >
               <SelectTrigger className="h-11 w-[220px] bg-background">
                 <SelectValue placeholder="选择状态" />
@@ -123,7 +152,7 @@ export function CandidateDetailPanel({
               type="button"
               variant="destructive"
               className="h-11 px-3"
-              disabled={isDeletingCandidate || isUpdatingStatus}
+              disabled={isDeletingCandidate || isUpdatingStatus || isUpdatingProfile}
               onClick={() => setDeleteDialogState({ candidateId, open: true })}
             >
               <Trash2 className="size-4" />
@@ -226,6 +255,21 @@ export function CandidateDetailPanel({
           )}
         </div>
       </Card>
+
+      {"profile" in candidate ? (
+        <CandidateProfileEditorDialog
+          candidate={candidate}
+          open={isEditorDialogOpen}
+          isSubmitting={isUpdatingProfile}
+          onOpenChange={(open) =>
+            setEditorDialogState({
+              candidateId: open ? candidateId : null,
+              open,
+            })
+          }
+          onSubmit={(payload) => onUpdateProfile(candidateId, payload)}
+        />
+      ) : null}
 
       <Dialog
         open={isDeleteDialogOpen}

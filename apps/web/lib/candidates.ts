@@ -1,6 +1,9 @@
 import {
   candidateDetailSchema,
   candidateListResponseSchema,
+  candidateProfileUpdateResponseSchema,
+  type candidateProfileUpdateSchema,
+  candidateScoreListResponseSchema,
   type candidateStatusSchema,
   candidateStatusUpdateResponseSchema,
   type candidateSummarySchema,
@@ -22,7 +25,9 @@ export type CandidateListQuery = {
 export type CandidateListResponse = z.infer<typeof candidateListResponseSchema>;
 export type CandidateSummary = z.infer<typeof candidateSummarySchema>;
 export type CandidateDetail = z.infer<typeof candidateDetailSchema>;
+export type CandidateScoreListResponse = z.infer<typeof candidateScoreListResponseSchema>;
 export type CandidateStatus = z.infer<typeof candidateStatusSchema>;
+export type CandidateProfileUpdateInput = z.infer<typeof candidateProfileUpdateSchema>;
 
 function appendSearchParam(
   params: URLSearchParams,
@@ -53,6 +58,31 @@ function buildQueryString(query: CandidateListQuery) {
 async function readJsonResponse(response: Response) {
   const text = await response.text();
   return text.length > 0 ? parseJson(text) : undefined;
+}
+
+export async function fetchCandidateScores(
+  candidateId: string,
+  jdId?: string,
+): Promise<CandidateScoreListResponse> {
+  const params = new URLSearchParams();
+  if (jdId) {
+    params.set("jdId", jdId);
+  }
+
+  const queryString = params.toString();
+  const response = await fetch(
+    buildApiUrl(`/candidates/${candidateId}/scores${queryString ? `?${queryString}` : ""}`),
+    {
+      cache: "no-store",
+    },
+  );
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(readApiErrorMessage(payload, `获取候选人评分失败，状态码 ${response.status}`));
+  }
+
+  return candidateScoreListResponseSchema.parse(payload);
 }
 
 export async function fetchCandidates(query: CandidateListQuery): Promise<CandidateListResponse> {
@@ -109,6 +139,26 @@ export async function updateCandidateStatus(candidateId: string, status: Candida
   return candidateStatusUpdateResponseSchema.parse(payload);
 }
 
+export async function updateCandidateProfile(
+  candidateId: string,
+  profile: CandidateProfileUpdateInput,
+) {
+  const response = await fetch(buildApiUrl(`/candidates/${candidateId}/profile`), {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(profile),
+  });
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(readApiErrorMessage(payload, `更新候选人简历失败，状态码 ${response.status}`));
+  }
+
+  return candidateProfileUpdateResponseSchema.parse(payload);
+}
+
 export function getCandidateFileUrl(candidateId: string) {
   return buildApiUrl(`/candidates/${candidateId}/file`);
 }
@@ -128,4 +178,8 @@ export function getCandidateListKey(query: CandidateListQuery) {
 
 export function getCandidateDetailKey(candidateId: string | null) {
   return candidateId ? (["candidate", candidateId] as const) : null;
+}
+
+export function getCandidateScoresKey(candidateId: string | null, jdId: string | null) {
+  return candidateId && jdId ? (["candidate-scores", candidateId, jdId] as const) : null;
 }

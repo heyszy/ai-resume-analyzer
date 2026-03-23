@@ -1,15 +1,17 @@
 "use client";
 
 import { LayoutPanelLeft } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useAnalysisStream } from "@/hooks/use-analysis-stream";
 import { useCandidateDetail } from "@/hooks/use-candidate-detail";
+import { useCandidateScores } from "@/hooks/use-candidate-scores";
 import { useCandidates } from "@/hooks/use-candidates";
 import { useJds } from "@/hooks/use-jds";
 import {
   type CandidateListResponse,
   deleteCandidate as deleteCandidateRequest,
   getCandidateDetailKey,
+  updateCandidateProfile as updateCandidateProfileRequest,
   updateCandidateStatus as updateCandidateStatusRequest,
 } from "@/lib/candidates";
 import {
@@ -19,16 +21,31 @@ import {
 } from "@/lib/jds";
 import { CandidateDetailPanel } from "./candidate-detail-panel";
 import { CandidateListPanel } from "./candidate-list-panel";
+import { mapProfileResponseToCandidatePatch } from "./candidate-profile-editor";
 import { CandidateTableDialog } from "./candidate-table-dialog";
 import { JdPanel } from "./jd-panel";
 import { useWorkspaceHomeStore } from "./workspace-home-store";
 import {
+  mergeCandidateProfile,
   mergeCandidateView,
   type WorkspaceCandidate,
   type WorkspaceCandidatePatch,
   type WorkspaceCandidateStatus,
+  type WorkspaceCandidateSummary,
   type WorkspaceJd,
+  type WorkspaceScore,
 } from "./workspace-model";
+import { WorkspaceScorePanel } from "./workspace-score-panel";
+
+type ScoreGenerationTrace = {
+  candidateId: string;
+  jdId: string;
+  progress: number;
+  stage: string;
+  message: string;
+  commentary: string;
+  steps: string[];
+};
 
 export function WorkspaceHome() {
   const activeJdId = useWorkspaceHomeStore((state) => state.activeJdId);
@@ -105,6 +122,12 @@ export function WorkspaceHome() {
     mutate: mutateSelectedCandidateDetail,
   } = useCandidateDetail(selectedCandidateId);
   const {
+    data: selectedCandidateScores,
+    error: selectedCandidateScoresError,
+    isLoading: isSelectedCandidateScoresLoading,
+    mutate: mutateSelectedCandidateScores,
+  } = useCandidateScores(selectedCandidateId, activeJdId);
+  const {
     data: jdList,
     error: jdListError,
     isLoading: isJdListLoading,
@@ -117,11 +140,25 @@ export function WorkspaceHome() {
   });
 
   const [candidateLivePatchById, setCandidateLivePatchById] = useState<
-    Record<string, WorkspaceCandidate>
+    Record<string, WorkspaceCandidate | WorkspaceCandidateSummary>
   >({});
   const [analysisCandidateIds, setAnalysisCandidateIds] = useState<string[]>([]);
+  const [scoreGenerationRequest, setScoreGenerationRequest] = useState<{
+    candidateId: string;
+    jdId: string;
+    regenerateScore: boolean;
+  } | null>(null);
+  const [scoreGenerationErrorState, setScoreGenerationErrorState] = useState<{
+    candidateId: string;
+    jdId: string;
+    message: string;
+  } | null>(null);
+  const [scoreGenerationTrace, setScoreGenerationTrace] = useState<ScoreGenerationTrace | null>(
+    null,
+  );
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [updatingCandidateStatusId, setUpdatingCandidateStatusId] = useState<string | null>(null);
+  const [updatingCandidateProfileId, setUpdatingCandidateProfileId] = useState<string | null>(null);
   const jds = jdList?.items ?? [];
 
   const mergedCandidateList = useMemo(() => {
@@ -161,6 +198,17 @@ export function WorkspaceHome() {
     }
   }, [activeJdId, jds, selectActiveJd]);
 
+  useEffect(() => {
+    if (!activeJdId || !selectedCandidateId) {
+      setScoreGenerationTrace(null);
+      setScoreGenerationErrorState(null);
+      return;
+    }
+
+    setScoreGenerationTrace(null);
+    setScoreGenerationErrorState(null);
+  }, [activeJdId, selectedCandidateId]);
+
   const selectedCandidateFromList = mergedCandidateList.find(
     (candidate) => candidate.id === selectedCandidateId,
   );
@@ -177,6 +225,106 @@ export function WorkspaceHome() {
     () => jds.find((jd) => jd.id === activeJdId) ?? jds.find((jd) => jd.isActive) ?? jds[0] ?? null,
     [activeJdId, jds],
   );
+  const activeScore = useMemo(
+    () => pickCurrentScore(selectedCandidateScores?.items ?? [], activeJd?.id ?? null),
+    [activeJd?.id, selectedCandidateScores?.items],
+  );
+  const activeScorePreview = useMemo(() => {
+    if (!selectedCandidate || !activeJd) {
+      return null;
+    }
+
+    const preview = selectedCandidate.currentScore;
+    if (!preview || preview.jdId !== activeJd.id) {
+      return null;
+    }
+
+    return preview;
+  }, [activeJd, selectedCandidate]);
+
+  useEffect(() => {
+    if (!selectedCandidate || !activeJd) {
+      return;
+    }
+
+    if (isSelectedCandidateScoresLoading) {
+      return;
+    }
+
+    if (activeScore) {
+      setCandidateLivePatchById((state) => {
+        const previous =
+          state[selectedCandidate.id] ??
+          resolveCandidateSnapshot(
+            selectedCandidate.id,
+            selectedCandidateDetail,
+            mergedCandidateList,
+          );
+
+        if (!previous) {
+          return state;
+        }
+
+        const currentScorePreview = getCurrentScorePreview(previous, activeJd.id);
+        const nextScorePreview = toScorePreview(activeScore, activeJd.title);
+        const existingScores = getScoreList(previous);
+        const hasCurrentScore = existingScores.some((score) => score.id === activeScore.id);
+
+        if (
+          currentScorePreview &&
+          isSameScorePreview(currentScorePreview, nextScorePreview) &&
+          hasCurrentScore
+        ) {
+          return state;
+        }
+
+        return {
+          ...state,
+          [selectedCandidate.id]: {
+            ...previous,
+            currentScore: nextScorePreview,
+            scores: upsertScoreList(existingScores, activeScore),
+            updatedAt: activeScore.scoredAt,
+          },
+        };
+      });
+      return;
+    }
+
+    if (selectedCandidateScoresError) {
+      return;
+    }
+
+    setCandidateLivePatchById((state) => {
+      const previous =
+        state[selectedCandidate.id] ??
+        resolveCandidateSnapshot(
+          selectedCandidate.id,
+          selectedCandidateDetail,
+          mergedCandidateList,
+        );
+
+      if (!previous || !getCurrentScorePreview(previous, activeJd.id)) {
+        return state;
+      }
+
+      return {
+        ...state,
+        [selectedCandidate.id]: {
+          ...previous,
+          currentScore: null,
+        },
+      };
+    });
+  }, [
+    activeJd,
+    activeScore,
+    isSelectedCandidateScoresLoading,
+    mergedCandidateList,
+    selectedCandidateScoresError,
+    selectedCandidateDetail,
+    selectedCandidate,
+  ]);
 
   useAnalysisStream({
     candidateIds: analysisCandidateIds,
@@ -220,35 +368,225 @@ export function WorkspaceHome() {
     },
   });
 
+  useAnalysisStream({
+    candidateIds: scoreGenerationRequest ? [scoreGenerationRequest.candidateId] : [],
+    enabled: scoreGenerationRequest !== null,
+    jdId: scoreGenerationRequest?.jdId,
+    regenerateScore: scoreGenerationRequest?.regenerateScore ?? false,
+    onProgress: (event) => {
+      patchCandidate(event.candidateId, {
+        processingStatus: event.processingStatus,
+        processingErrorMessage: null,
+        updatedAt: new Date().toISOString(),
+      });
+
+      if (!scoreGenerationRequest || event.candidateId !== scoreGenerationRequest.candidateId) {
+        return;
+      }
+
+      setScoreGenerationTrace((current) => {
+        const nextStep = formatScoreTraceStep(event.stage, event.message);
+
+        if (
+          !current ||
+          current.candidateId !== scoreGenerationRequest.candidateId ||
+          current.jdId !== scoreGenerationRequest.jdId
+        ) {
+          return {
+            candidateId: scoreGenerationRequest.candidateId,
+            jdId: scoreGenerationRequest.jdId,
+            progress: event.progress,
+            stage: event.stage,
+            message: event.message,
+            commentary: "",
+            steps: [nextStep],
+          };
+        }
+
+        return {
+          ...current,
+          progress: event.progress,
+          stage: event.stage,
+          message: event.message,
+          steps: pushUniqueStep(current.steps, nextStep),
+        };
+      });
+    },
+    onScorePartial: (event) => {
+      if (!scoreGenerationRequest || event.candidateId !== scoreGenerationRequest.candidateId) {
+        return;
+      }
+
+      setScoreGenerationTrace((current) => {
+        const commentary = event.commentary?.trim();
+        const nextStep = formatScoreTraceStep(event.stage, event.message);
+
+        if (
+          !current ||
+          current.candidateId !== scoreGenerationRequest.candidateId ||
+          current.jdId !== scoreGenerationRequest.jdId
+        ) {
+          return {
+            candidateId: scoreGenerationRequest.candidateId,
+            jdId: scoreGenerationRequest.jdId,
+            progress: 86,
+            stage: event.stage,
+            message: event.message,
+            commentary: commentary ?? "",
+            steps: [nextStep],
+          };
+        }
+
+        return {
+          ...current,
+          progress: Math.max(current.progress, 86),
+          stage: event.stage,
+          message: event.message,
+          commentary: mergeScoreTraceCommentary(current.commentary, commentary ?? ""),
+          steps: pushUniqueStep(current.steps, nextStep),
+        };
+      });
+    },
+    onScoreFinal: (event) => {
+      const score = event.score;
+      const scorePreview = toScorePreview(score, score.jdTitle ?? null);
+
+      setCandidateLivePatchById((state) => {
+        const previous =
+          state[event.candidateId] ??
+          resolveCandidateSnapshot(event.candidateId, selectedCandidateDetail, mergedCandidateList);
+
+        if (!previous) {
+          return state;
+        }
+
+        return {
+          ...state,
+          [event.candidateId]: {
+            ...previous,
+            currentScore: scorePreview,
+            scores: upsertScoreList(getScoreList(previous), score),
+            updatedAt: score.scoredAt,
+          },
+        };
+      });
+
+      if (scoreGenerationRequest && event.candidateId === scoreGenerationRequest.candidateId) {
+        setScoreGenerationTrace((current) => {
+          if (
+            !current ||
+            current.candidateId !== scoreGenerationRequest.candidateId ||
+            current.jdId !== scoreGenerationRequest.jdId
+          ) {
+            return {
+              candidateId: scoreGenerationRequest.candidateId,
+              jdId: scoreGenerationRequest.jdId,
+              progress: 100,
+              stage: "score.complete",
+              message: "岗位评分已生成完成。",
+              commentary: score.aiCommentary,
+              steps: [formatScoreTraceStep("score.complete", "岗位评分已生成完成。")],
+            };
+          }
+
+          return {
+            ...current,
+            progress: 100,
+            stage: "score.complete",
+            message: "岗位评分已生成完成。",
+            commentary: score.aiCommentary,
+            steps: pushUniqueStep(
+              current.steps,
+              formatScoreTraceStep("score.complete", "岗位评分已生成完成。"),
+            ),
+          };
+        });
+      }
+    },
+    onErrorEvent: (event) => {
+      if (scoreGenerationRequest) {
+        setScoreGenerationErrorState({
+          candidateId: event.candidateId,
+          jdId: scoreGenerationRequest.jdId,
+          message: event.message,
+        });
+      }
+      setScoreGenerationRequest(null);
+      patchCandidate(event.candidateId, {
+        processingStatus: "failed",
+        processingErrorMessage: event.message,
+        updatedAt: new Date().toISOString(),
+      });
+    },
+    onConnectionError: () => {
+      if (scoreGenerationRequest) {
+        setScoreGenerationErrorState({
+          candidateId: scoreGenerationRequest.candidateId,
+          jdId: scoreGenerationRequest.jdId,
+          message: "评分连接已断开，请重试。",
+        });
+      }
+      setScoreGenerationRequest(null);
+    },
+    onAllDone: () => {
+      setScoreGenerationRequest(null);
+      void mutateCandidateList();
+      if (selectedDetailKey) {
+        void mutateSelectedCandidateDetail();
+      }
+      void mutateSelectedCandidateScores();
+    },
+  });
+
   const listErrorMessage = candidateListError instanceof Error ? candidateListError.message : null;
   const detailErrorMessage =
     selectedCandidateDetailError instanceof Error ? selectedCandidateDetailError.message : null;
+  const scoreErrorMessage =
+    selectedCandidateScoresError instanceof Error ? selectedCandidateScoresError.message : null;
   const jdErrorMessage = jdListError instanceof Error ? jdListError.message : null;
+  const currentScoreGenerationErrorMessage =
+    scoreGenerationErrorState &&
+    scoreGenerationErrorState.candidateId === selectedCandidate?.id &&
+    scoreGenerationErrorState.jdId === activeJd?.id
+      ? scoreGenerationErrorState.message
+      : null;
+  const currentScoreGenerationTrace =
+    scoreGenerationTrace &&
+    scoreGenerationTrace.candidateId === selectedCandidate?.id &&
+    scoreGenerationTrace.jdId === activeJd?.id
+      ? scoreGenerationTrace
+      : null;
 
-  function patchCandidate(candidateId: string, patch: WorkspaceCandidatePatch) {
-    setCandidateLivePatchById((state) => {
-      const previous = state[candidateId];
+  const patchCandidate = useCallback(
+    (candidateId: string, patch: WorkspaceCandidatePatch) => {
+      setCandidateLivePatchById((state) => {
+        const previous =
+          state[candidateId] ??
+          (selectedCandidateDetail?.id === candidateId
+            ? selectedCandidateDetail
+            : (mergedCandidateList.find((candidate) => candidate.id === candidateId) ?? null));
 
-      if (!previous) {
-        return state;
-      }
+        if (!previous) {
+          return state;
+        }
 
-      return {
-        ...state,
-        [candidateId]: {
-          ...previous,
-          ...patch,
-          profile:
-            typeof patch.profile === "undefined"
-              ? previous?.profile
-              : mergeLiveProfile(
-                  previous?.profile,
-                  patch.profile as WorkspaceCandidate["profile"] | null | undefined,
-                ),
-        },
-      };
-    });
-  }
+        const nextProfile =
+          typeof patch.profile === "undefined"
+            ? undefined
+            : mergeCandidateProfile("profile" in previous ? previous.profile : null, patch.profile);
+
+        return {
+          ...state,
+          [candidateId]: {
+            ...previous,
+            ...patch,
+            ...(typeof patch.profile === "undefined" ? {} : { profile: nextProfile }),
+          },
+        };
+      });
+    },
+    [mergedCandidateList, selectedCandidateDetail],
+  );
 
   function handleCandidateCreated(candidate: WorkspaceCandidate) {
     setCandidateLivePatchById((state) => ({
@@ -373,6 +711,99 @@ export function WorkspaceHome() {
     }
   }
 
+  async function handleUpdateCandidateProfile(
+    candidateId: string,
+    payload: Parameters<typeof updateCandidateProfileRequest>[1],
+  ) {
+    const snapshot = resolveCandidateSnapshot(
+      candidateId,
+      selectedCandidateDetail,
+      mergedCandidateList,
+    );
+    if (!snapshot) {
+      return;
+    }
+
+    const previousProfile = "profile" in snapshot ? (snapshot.profile ?? null) : null;
+    const previousPatch: WorkspaceCandidatePatch = {
+      displayName: snapshot.displayName,
+      email: snapshot.email,
+      phone: snapshot.phone,
+      city: snapshot.city,
+      skillTags: snapshot.skillTags,
+      profile: previousProfile,
+      rawText: "rawText" in snapshot ? snapshot.rawText : null,
+      cleanedText: "cleanedText" in snapshot ? snapshot.cleanedText : null,
+      updatedAt: snapshot.updatedAt,
+    };
+    const optimisticUpdatedAt = new Date().toISOString();
+    const optimisticProfile: NonNullable<WorkspaceCandidate["profile"]> = {
+      basicInfo: {
+        name: payload.basicInfo?.name ?? previousProfile?.basicInfo.name ?? snapshot.displayName,
+        phone:
+          payload.basicInfo?.phone ?? previousProfile?.basicInfo.phone ?? snapshot.phone ?? null,
+        email:
+          payload.basicInfo?.email ?? previousProfile?.basicInfo.email ?? snapshot.email ?? null,
+        city: payload.basicInfo?.city ?? previousProfile?.basicInfo.city ?? snapshot.city ?? null,
+      },
+      educationHistory: payload.educationHistory ?? previousProfile?.educationHistory ?? [],
+      workExperiences: payload.workExperiences ?? previousProfile?.workExperiences ?? [],
+      skillTags: payload.skillTags ?? previousProfile?.skillTags ?? snapshot.skillTags ?? [],
+      projectExperiences: payload.projectExperiences ?? previousProfile?.projectExperiences ?? [],
+      sourceText: payload.sourceText ?? previousProfile?.sourceText ?? "",
+      cleanedText: payload.cleanedText ?? previousProfile?.cleanedText ?? "",
+      extractionNotes: payload.extractionNotes ?? previousProfile?.extractionNotes ?? "",
+      extractedAt: optimisticUpdatedAt,
+    };
+
+    setUpdatingCandidateProfileId(candidateId);
+    patchCandidate(
+      candidateId,
+      mapProfileResponseToCandidatePatch(optimisticProfile, optimisticUpdatedAt),
+    );
+
+    try {
+      const response = await updateCandidateProfileRequest(candidateId, payload);
+      patchCandidate(
+        candidateId,
+        mapProfileResponseToCandidatePatch(response.profile, new Date().toISOString()),
+      );
+      await mutateCandidateList();
+      if (selectedDetailKey) {
+        await mutateSelectedCandidateDetail();
+      }
+    } catch (error) {
+      patchCandidate(candidateId, previousPatch);
+      throw error;
+    } finally {
+      setUpdatingCandidateProfileId((current) => (current === candidateId ? null : current));
+    }
+  }
+
+  async function handleGenerateScore() {
+    if (!selectedCandidate || !activeJd || scoreGenerationRequest) {
+      return;
+    }
+
+    const regenerateScore = Boolean(activeScore || activeScorePreview);
+
+    setScoreGenerationErrorState(null);
+    setScoreGenerationTrace({
+      candidateId: selectedCandidate.id,
+      jdId: activeJd.id,
+      progress: 0,
+      stage: "score.prepare",
+      message: regenerateScore ? "正在重新生成岗位匹配评分。" : "正在准备岗位匹配评分。",
+      commentary: "",
+      steps: [regenerateScore ? "已发起重新生成评分请求" : "已发起评分请求"],
+    });
+    setScoreGenerationRequest({
+      candidateId: selectedCandidate.id,
+      jdId: activeJd.id,
+      regenerateScore,
+    });
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-3">
@@ -411,6 +842,10 @@ export function WorkspaceHome() {
             Boolean(selectedCandidate) && updatingCandidateStatusId === selectedCandidate?.id
           }
           onStatusChange={handleUpdateCandidateStatus}
+          isUpdatingProfile={
+            Boolean(selectedCandidate) && updatingCandidateProfileId === selectedCandidate?.id
+          }
+          onUpdateProfile={handleUpdateCandidateProfile}
           isDeletingCandidate={
             Boolean(selectedCandidate) && deletingCandidateId === selectedCandidate?.id
           }
@@ -419,16 +854,33 @@ export function WorkspaceHome() {
           errorMessage={detailErrorMessage}
         />
 
-        <JdPanel
-          activeJd={activeJd}
-          jds={jds}
-          isLoading={isJdListLoading}
-          panelErrorMessage={jdErrorMessage}
-          onSelectActiveJd={selectActiveJd}
-          onCreateJd={handleCreateJd}
-          onUpdateJd={handleUpdateJd}
-          onDeleteJd={handleDeleteJd}
-        />
+        <div className="space-y-3">
+          <JdPanel
+            activeJd={activeJd}
+            jds={jds}
+            isLoading={isJdListLoading}
+            panelErrorMessage={jdErrorMessage}
+            onSelectActiveJd={selectActiveJd}
+            onCreateJd={handleCreateJd}
+            onUpdateJd={handleUpdateJd}
+            onDeleteJd={handleDeleteJd}
+          />
+
+          <WorkspaceScorePanel
+            candidateName={selectedCandidate?.displayName ?? null}
+            jobTitle={activeJd?.title ?? null}
+            score={activeScore}
+            scorePreview={activeScorePreview}
+            isScoreLoading={isSelectedCandidateScoresLoading}
+            isGenerating={
+              scoreGenerationRequest?.candidateId === selectedCandidate?.id &&
+              scoreGenerationRequest?.jdId === activeJd?.id
+            }
+            errorMessage={currentScoreGenerationErrorMessage ?? scoreErrorMessage}
+            generationTrace={currentScoreGenerationTrace}
+            onGenerate={() => void handleGenerateScore()}
+          />
+        </div>
       </div>
 
       <CandidateTableDialog
@@ -493,59 +945,119 @@ function removeCandidateFromList(
   };
 }
 
-function mergeLiveProfile(
-  base: WorkspaceCandidate["profile"] | null | undefined,
-  patch: WorkspaceCandidate["profile"] | null | undefined,
-) {
-  if (typeof patch === "undefined") {
-    return base ?? null;
+function getScoreList(candidate: ScoreCandidateLike | null) {
+  return candidate?.scores ?? [];
+}
+
+function resolveCandidateSnapshot(
+  candidateId: string,
+  selectedCandidateDetail: WorkspaceCandidate | null | undefined,
+  mergedCandidateList: (WorkspaceCandidate | WorkspaceCandidateSummary)[],
+): WorkspaceCandidate | WorkspaceCandidateSummary | null {
+  if (selectedCandidateDetail?.id === candidateId) {
+    return selectedCandidateDetail;
   }
 
-  if (patch === null) {
+  return mergedCandidateList.find((candidate) => candidate.id === candidateId) ?? null;
+}
+
+function getCurrentScorePreview(
+  candidate: WorkspaceCandidate | WorkspaceCandidateSummary,
+  jdId: string,
+) {
+  const currentScore = candidate.currentScore;
+
+  if (!currentScore || currentScore.jdId !== jdId) {
     return null;
   }
 
-  if (!base) {
-    return {
-      basicInfo: {
-        name: patch.basicInfo?.name ?? null,
-        phone: patch.basicInfo?.phone ?? null,
-        email: patch.basicInfo?.email ?? null,
-        city: patch.basicInfo?.city ?? null,
-      },
-      educationHistory: patch.educationHistory ?? [],
-      workExperiences: patch.workExperiences ?? [],
-      skillTags: patch.skillTags ?? [],
-      projectExperiences: patch.projectExperiences ?? [],
-      sourceText: patch.sourceText ?? "",
-      cleanedText: patch.cleanedText ?? "",
-      extractionNotes: patch.extractionNotes ?? "",
-      extractedAt: patch.extractedAt,
-    };
+  return currentScore;
+}
+
+function pickCurrentScore(scores: WorkspaceScore[], jdId: string | null) {
+  if (!jdId) {
+    return null;
   }
 
+  const orderedScores = [...scores];
+  const scoreForJd = orderedScores.find((score) => score.jdId === jdId && !score.isStale);
+  if (scoreForJd) {
+    return scoreForJd;
+  }
+
+  return orderedScores.find((score) => score.jdId === jdId) ?? null;
+}
+
+function toScorePreview(score: WorkspaceScore, jdTitle?: string | null) {
   return {
-    ...base,
-    ...patch,
-    basicInfo: {
-      ...base.basicInfo,
-      ...patch.basicInfo,
-    },
-    educationHistory:
-      typeof patch.educationHistory === "undefined"
-        ? base.educationHistory
-        : patch.educationHistory,
-    workExperiences:
-      typeof patch.workExperiences === "undefined" ? base.workExperiences : patch.workExperiences,
-    skillTags: typeof patch.skillTags === "undefined" ? base.skillTags : patch.skillTags,
-    projectExperiences:
-      typeof patch.projectExperiences === "undefined"
-        ? base.projectExperiences
-        : patch.projectExperiences,
-    sourceText: typeof patch.sourceText === "undefined" ? base.sourceText : patch.sourceText,
-    cleanedText: typeof patch.cleanedText === "undefined" ? base.cleanedText : patch.cleanedText,
-    extractionNotes:
-      typeof patch.extractionNotes === "undefined" ? base.extractionNotes : patch.extractionNotes,
-    extractedAt: typeof patch.extractedAt === "undefined" ? base.extractedAt : patch.extractedAt,
+    jdId: score.jdId,
+    jdTitle: jdTitle ?? score.jdTitle,
+    totalScore: score.totalScore,
+    skillMatchScore: score.skillMatchScore,
+    experienceRelevanceScore: score.experienceRelevanceScore,
+    educationFitScore: score.educationFitScore,
+    isStale: score.isStale,
+    scoredAt: score.scoredAt,
   };
 }
+
+function isSameScorePreview(
+  left: NonNullable<WorkspaceCandidate["currentScore"]>,
+  right: NonNullable<WorkspaceCandidate["currentScore"]>,
+) {
+  return (
+    left.jdId === right.jdId &&
+    left.jdTitle === right.jdTitle &&
+    left.totalScore === right.totalScore &&
+    left.skillMatchScore === right.skillMatchScore &&
+    left.experienceRelevanceScore === right.experienceRelevanceScore &&
+    left.educationFitScore === right.educationFitScore &&
+    left.isStale === right.isStale &&
+    left.scoredAt === right.scoredAt
+  );
+}
+
+function formatScoreTraceStep(stage: string, message: string) {
+  const stageLabel = stage.startsWith("score.") ? stage.replace("score.", "评分·") : stage;
+  return `${stageLabel}：${message}`;
+}
+
+function pushUniqueStep(steps: string[], step: string) {
+  if (steps.includes(step)) {
+    return steps;
+  }
+
+  return [...steps, step];
+}
+
+function mergeScoreTraceCommentary(previous: string, next: string) {
+  const normalizedNext = next.trim();
+
+  if (!normalizedNext) {
+    return previous;
+  }
+
+  if (!previous) {
+    return normalizedNext;
+  }
+
+  if (normalizedNext.startsWith(previous)) {
+    return normalizedNext;
+  }
+
+  if (previous.endsWith(normalizedNext)) {
+    return previous;
+  }
+
+  return `${previous}\n\n${normalizedNext}`;
+}
+
+function upsertScoreList(scores: WorkspaceCandidate["scores"], nextScore: WorkspaceScore) {
+  const currentScores = scores ?? [];
+  const nextScores = currentScores.filter((score) => score.jdId !== nextScore.jdId);
+
+  return [...nextScores, nextScore];
+}
+
+type ScoreCandidateLike = Pick<WorkspaceCandidate, "id" | "currentScore"> &
+  Partial<Pick<WorkspaceCandidate, "scores">>;
