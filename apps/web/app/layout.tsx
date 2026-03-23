@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "简历分析工作台",
-  description: "批量上传、解析和管理简历的 MVP 工作台",
+  title: "AI Resume Analyzer",
+  description: "简历上传、解析与候选人管理",
 };
 
 export default function RootLayout({

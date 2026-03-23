@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@ai-resume-analyzer/shared": ["../../packages/shared/src/index.ts"]
     }
   },
   "include": [

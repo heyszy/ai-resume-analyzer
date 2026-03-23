@@ -1,6 +1,6 @@
 "use client";
 
-import { BriefcaseBusiness, PencilLine, Plus, Sparkles, Trash2 } from "lucide-react";
+import { PencilLine, Plus, Sparkles, Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,12 @@ type JdDraft = Pick<WorkspaceJd, "title" | "description" | "requiredSkills" | "b
 type JdPanelProps = {
   activeJd: WorkspaceJd | null;
   jds: WorkspaceJd[];
-  onSelectActiveJd: (jdId: string) => void;
-  onCreateJd: (draft: JdDraft) => void;
-  onUpdateJd: (jdId: string, draft: JdDraft) => void;
-  onDeleteJd: (jdId: string) => void;
+  isLoading: boolean;
+  panelErrorMessage: string | null;
+  onSelectActiveJd: (jdId: string | null) => void;
+  onCreateJd: (draft: JdDraft) => Promise<void>;
+  onUpdateJd: (jdId: string, draft: JdDraft) => Promise<void>;
+  onDeleteJd: (jdId: string) => Promise<void>;
 };
 
 const emptyDraft: JdDraft = {
@@ -39,6 +41,8 @@ const emptyDraft: JdDraft = {
 export function JdPanel({
   activeJd,
   jds,
+  isLoading,
+  panelErrorMessage,
   onSelectActiveJd,
   onCreateJd,
   onUpdateJd,
@@ -46,10 +50,11 @@ export function JdPanel({
 }: JdPanelProps) {
   const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [draft, setDraft] = useState<JdDraft>(emptyDraft);
   const [requiredSkillText, setRequiredSkillText] = useState("");
   const [bonusSkillText, setBonusSkillText] = useState("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [formErrorMessage, setFormErrorMessage] = useState<string | null>(null);
 
   const isDialogOpen = dialogMode !== null;
 
@@ -63,7 +68,7 @@ export function JdPanel({
       });
       setRequiredSkillText(activeJd.requiredSkills.join("\n"));
       setBonusSkillText(activeJd.bonusSkills.join("\n"));
-      setErrorMessage(null);
+      setFormErrorMessage(null);
       return;
     }
 
@@ -71,7 +76,7 @@ export function JdPanel({
       setDraft(emptyDraft);
       setRequiredSkillText("");
       setBonusSkillText("");
-      setErrorMessage(null);
+      setFormErrorMessage(null);
     }
   }, [activeJd, dialogMode]);
 
@@ -89,7 +94,7 @@ export function JdPanel({
 
   function closeDialog() {
     setDialogMode(null);
-    setErrorMessage(null);
+    setFormErrorMessage(null);
   }
 
   function openDeleteConfirm() {
@@ -104,23 +109,30 @@ export function JdPanel({
     setIsDeleteConfirmOpen(false);
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!activeJd) {
       return;
     }
 
-    onDeleteJd(activeJd.id);
-    closeDeleteConfirm();
+    try {
+      setIsSubmitting(true);
+      await onDeleteJd(activeJd.id);
+      closeDeleteConfirm();
+    } catch (error) {
+      setFormErrorMessage(error instanceof Error ? error.message : "删除职位失败。");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
-  function handleSave() {
+  async function handleSave() {
     const normalizedTitle = draft.title.trim();
     const normalizedDescription = draft.description.trim();
     const requiredSkills = normalizeSkillInput(requiredSkillText);
     const bonusSkills = normalizeSkillInput(bonusSkillText);
 
     if (!normalizedTitle || !normalizedDescription || requiredSkills.length === 0) {
-      setErrorMessage("请填写岗位名称、岗位描述和必备技能。");
+      setFormErrorMessage("请填写岗位名称、岗位描述和必备技能。");
       return;
     }
 
@@ -131,15 +143,24 @@ export function JdPanel({
       bonusSkills,
     };
 
-    if (dialogMode === "edit" && activeJd) {
-      onUpdateJd(activeJd.id, nextDraft);
-    }
+    try {
+      setIsSubmitting(true);
+      setFormErrorMessage(null);
 
-    if (dialogMode === "create") {
-      onCreateJd(nextDraft);
-    }
+      if (dialogMode === "edit" && activeJd) {
+        await onUpdateJd(activeJd.id, nextDraft);
+      }
 
-    closeDialog();
+      if (dialogMode === "create") {
+        await onCreateJd(nextDraft);
+      }
+
+      closeDialog();
+    } catch (error) {
+      setFormErrorMessage(error instanceof Error ? error.message : "保存职位失败。");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -148,12 +169,7 @@ export function JdPanel({
         <div className="space-y-4 px-4 py-4">
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-3">
-              <label
-                className="text-sm font-medium text-slate-950"
-                htmlFor="active-jd-select-trigger"
-              >
-                职位
-              </label>
+              <div className="text-sm font-semibold text-slate-950">职位</div>
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={openCreateDialog}>
                   <Plus className="size-3.5" />
@@ -185,7 +201,7 @@ export function JdPanel({
             <Select
               value={activeJd?.id ?? ""}
               onValueChange={(value) => onSelectActiveJd(value)}
-              disabled={jds.length === 0}
+              disabled={jds.length === 0 || isLoading}
             >
               <SelectTrigger id="active-jd-select-trigger">
                 <SelectValue placeholder="选择职位" />
@@ -202,23 +218,27 @@ export function JdPanel({
 
           {activeJd ? (
             <div className="space-y-4">
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-xs text-slate-600">
-                  <BriefcaseBusiness className="size-3.5" />
-                  岗位信息
-                </div>
-                <h2 className="text-[28px] font-semibold text-slate-950">{activeJd.title}</h2>
-                <p className="text-sm leading-7 text-muted-foreground">{activeJd.description}</p>
-              </div>
+              <h2 className="text-[28px] font-semibold leading-tight text-slate-950">
+                {activeJd.title}
+              </h2>
+              <p className="text-sm leading-7 text-muted-foreground">{activeJd.description}</p>
 
               <TagSection title="必备技能" tags={activeJd.requiredSkills} emphasize />
               <TagSection title="加分技能" tags={activeJd.bonusSkills} />
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-border bg-muted/40 px-4 py-10 text-center">
-              <p className="text-sm font-medium text-slate-950">暂无职位</p>
+              <p className="text-sm font-medium text-slate-950">
+                {isLoading ? "正在加载职位" : "暂无职位"}
+              </p>
             </div>
           )}
+
+          {panelErrorMessage ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {panelErrorMessage}
+            </div>
+          ) : null}
         </div>
       </Card>
 
@@ -279,18 +299,18 @@ export function JdPanel({
             />
           </Field>
 
-          {errorMessage ? (
+          {formErrorMessage ? (
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {errorMessage}
+              {formErrorMessage}
             </div>
           ) : null}
 
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={closeDialog}>
+            <Button type="button" variant="outline" onClick={closeDialog} disabled={isSubmitting}>
               取消
             </Button>
-            <Button type="button" onClick={handleSave}>
-              保存
+            <Button type="button" onClick={handleSave} disabled={isSubmitting}>
+              {isSubmitting ? "保存中" : "保存"}
             </Button>
           </div>
         </div>
@@ -315,11 +335,21 @@ export function JdPanel({
           </p>
 
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={closeDeleteConfirm}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={closeDeleteConfirm}
+              disabled={isSubmitting}
+            >
               取消
             </Button>
-            <Button type="button" variant="destructive" onClick={handleDelete}>
-              确认删除
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "删除中" : "确认删除"}
             </Button>
           </div>
         </div>

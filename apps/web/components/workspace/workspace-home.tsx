@@ -160,6 +160,7 @@ export function WorkspaceHome() {
   const [updatingCandidateStatusId, setUpdatingCandidateStatusId] = useState<string | null>(null);
   const [updatingCandidateProfileId, setUpdatingCandidateProfileId] = useState<string | null>(null);
   const jds = jdList?.items ?? [];
+  const isAnalysisRunning = analysisCandidateIds.length > 0;
 
   const mergedCandidateList = useMemo(() => {
     const items = candidateList?.items ?? [];
@@ -556,6 +557,11 @@ export function WorkspaceHome() {
     scoreGenerationTrace.jdId === activeJd?.id
       ? scoreGenerationTrace
       : null;
+  const isCurrentScoreGenerating =
+    scoreGenerationRequest?.candidateId === selectedCandidate?.id &&
+    scoreGenerationRequest?.jdId === activeJd?.id;
+  const shouldHideCurrentScore =
+    isCurrentScoreGenerating && currentScoreGenerationTrace?.stage !== "score.complete";
 
   const patchCandidate = useCallback(
     (candidateId: string, patch: WorkspaceCandidatePatch) => {
@@ -780,6 +786,19 @@ export function WorkspaceHome() {
     }
   }
 
+  function handleReanalyzeCandidate(candidateId: string) {
+    if (isAnalysisRunning || scoreGenerationRequest) {
+      return;
+    }
+
+    patchCandidate(candidateId, {
+      processingStatus: "parsing",
+      processingErrorMessage: null,
+      updatedAt: new Date().toISOString(),
+    });
+    setAnalysisCandidateIds([candidateId]);
+  }
+
   async function handleGenerateScore() {
     if (!selectedCandidate || !activeJd || scoreGenerationRequest) {
       return;
@@ -846,6 +865,10 @@ export function WorkspaceHome() {
             Boolean(selectedCandidate) && updatingCandidateProfileId === selectedCandidate?.id
           }
           onUpdateProfile={handleUpdateCandidateProfile}
+          isReanalyzing={
+            Boolean(selectedCandidate) && analysisCandidateIds.includes(selectedCandidate?.id ?? "")
+          }
+          onReanalyze={handleReanalyzeCandidate}
           isDeletingCandidate={
             Boolean(selectedCandidate) && deletingCandidateId === selectedCandidate?.id
           }
@@ -869,15 +892,13 @@ export function WorkspaceHome() {
           <WorkspaceScorePanel
             candidateName={selectedCandidate?.displayName ?? null}
             jobTitle={activeJd?.title ?? null}
-            score={activeScore}
-            scorePreview={activeScorePreview}
+            score={shouldHideCurrentScore ? null : activeScore}
+            scorePreview={shouldHideCurrentScore ? null : activeScorePreview}
             isScoreLoading={isSelectedCandidateScoresLoading}
-            isGenerating={
-              scoreGenerationRequest?.candidateId === selectedCandidate?.id &&
-              scoreGenerationRequest?.jdId === activeJd?.id
-            }
+            isGenerating={isCurrentScoreGenerating}
             errorMessage={currentScoreGenerationErrorMessage ?? scoreErrorMessage}
-            generationTrace={currentScoreGenerationTrace}
+            streamingMessage={currentScoreGenerationTrace?.message ?? null}
+            streamingCommentary={currentScoreGenerationTrace?.commentary ?? null}
             onGenerate={() => void handleGenerateScore()}
           />
         </div>

@@ -1,4 +1,4 @@
-import { AlertTriangle, FileText, PencilLine, TextQuote, Trash2 } from "lucide-react";
+import { AlertTriangle, FileText, PencilLine, RefreshCw, TextQuote, Trash2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useState } from "react";
 
@@ -41,6 +41,8 @@ type CandidateDetailPanelProps = {
     candidateId: string,
     payload: import("@/lib/candidates").CandidateProfileUpdateInput,
   ) => Promise<void>;
+  isReanalyzing: boolean;
+  onReanalyze: (candidateId: string) => void;
   isDeletingCandidate: boolean;
   onDeleteCandidate: (candidateId: string) => Promise<void>;
   isLoading: boolean;
@@ -53,6 +55,8 @@ export function CandidateDetailPanel({
   onStatusChange,
   isUpdatingProfile,
   onUpdateProfile,
+  isReanalyzing,
+  onReanalyze,
   isDeletingCandidate,
   onDeleteCandidate,
   isLoading,
@@ -118,23 +122,11 @@ export function CandidateDetailPanel({
           <h2 className="min-w-0 truncate text-[28px] font-semibold text-slate-950">
             {candidate.displayName}
           </h2>
-          <div className="flex w-full max-w-[360px] items-center justify-end gap-2">
-            {"profile" in candidate ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 px-3"
-                disabled={isUpdatingProfile || isUpdatingStatus || isDeletingCandidate}
-                onClick={() => setEditorDialogState({ candidateId, open: true })}
-              >
-                <PencilLine className="size-4" />
-                编辑简历
-              </Button>
-            ) : null}
+          <div className="flex w-full max-w-[640px] flex-wrap items-center justify-end gap-2">
             <Select
               value={candidate.status}
               onValueChange={(value) => onStatusChange(value as WorkspaceCandidateStatus)}
-              disabled={isUpdatingStatus || isUpdatingProfile || isDeletingCandidate}
+              disabled={isUpdatingStatus || isUpdatingProfile || isReanalyzing || isDeletingCandidate}
             >
               <SelectTrigger className="h-11 w-[220px] bg-background">
                 <SelectValue placeholder="选择状态" />
@@ -148,11 +140,35 @@ export function CandidateDetailPanel({
               </SelectContent>
             </Select>
 
+            {"profile" in candidate ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 px-3"
+                disabled={isUpdatingProfile || isUpdatingStatus || isReanalyzing || isDeletingCandidate}
+                onClick={() => setEditorDialogState({ candidateId, open: true })}
+              >
+                <PencilLine className="size-4" />
+                编辑简历
+              </Button>
+            ) : null}
+
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 px-3"
+              disabled={isUpdatingProfile || isUpdatingStatus || isReanalyzing || isDeletingCandidate}
+              onClick={() => onReanalyze(candidateId)}
+            >
+              <RefreshCw className={`size-4 ${isReanalyzing ? "animate-spin" : ""}`} />
+              {isReanalyzing ? "重新解析中..." : "重新解析"}
+            </Button>
+
             <Button
               type="button"
               variant="destructive"
               className="h-11 px-3"
-              disabled={isDeletingCandidate || isUpdatingStatus || isUpdatingProfile}
+              disabled={isDeletingCandidate || isUpdatingStatus || isUpdatingProfile || isReanalyzing}
               onClick={() => setDeleteDialogState({ candidateId, open: true })}
             >
               <Trash2 className="size-4" />
