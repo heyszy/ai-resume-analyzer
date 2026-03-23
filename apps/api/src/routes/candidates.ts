@@ -52,6 +52,60 @@ function normalizeScoreDetails(scoreDetails: {
   };
 }
 
+function normalizeEducationHistory(
+  educationHistory:
+    | Array<{
+        school?: string | null;
+        major?: string | null;
+        degree?: string | null;
+        graduationTime?: string | null;
+      }>
+    | undefined,
+) {
+  return (educationHistory ?? []).map((item) => ({
+    school: item.school ?? null,
+    major: item.major ?? null,
+    degree: item.degree ?? null,
+    graduationTime: item.graduationTime ?? null,
+  }));
+}
+
+function normalizeWorkExperiences(
+  workExperiences:
+    | Array<{
+        companyName?: string | null;
+        position?: string | null;
+        timeRange?: string | null;
+        summary?: string | null;
+      }>
+    | undefined,
+) {
+  return (workExperiences ?? []).map((item) => ({
+    companyName: item.companyName ?? null,
+    position: item.position ?? null,
+    timeRange: item.timeRange ?? null,
+    summary: item.summary ?? null,
+  }));
+}
+
+function normalizeProjectExperiences(
+  projectExperiences:
+    | Array<{
+        projectName?: string | null;
+        techStack?: string[];
+        responsibilities?: string[];
+        highlights?: string[];
+      }>
+    | undefined,
+) {
+  return (projectExperiences ?? []).map((item) => ({
+    projectName: item.projectName ?? null,
+    techStack: item.techStack ?? [],
+    responsibilities: item.responsibilities ?? [],
+    highlights: item.highlights ?? [],
+  }));
+}
+
 // 候选人列表接口，支持分页、关键字搜索、技能筛选和排序。
 export async function registerCandidateRoutes(app: FastifyInstance) {
   app.get(
@@ -289,11 +343,16 @@ export async function registerCandidateRoutes(app: FastifyInstance) {
           city:
             request.body.basicInfo?.city ?? currentProfile?.basicInfo.city ?? existing.city ?? null,
         },
-        educationHistory: request.body.educationHistory ?? currentProfile?.educationHistory ?? [],
-        workExperiences: request.body.workExperiences ?? currentProfile?.workExperiences ?? [],
+        educationHistory: normalizeEducationHistory(
+          request.body.educationHistory ?? currentProfile?.educationHistory,
+        ),
+        workExperiences: normalizeWorkExperiences(
+          request.body.workExperiences ?? currentProfile?.workExperiences,
+        ),
         skillTags: request.body.skillTags ?? currentProfile?.skillTags ?? [],
-        projectExperiences:
-          request.body.projectExperiences ?? currentProfile?.projectExperiences ?? [],
+        projectExperiences: normalizeProjectExperiences(
+          request.body.projectExperiences ?? currentProfile?.projectExperiences,
+        ),
         sourceText: request.body.sourceText ?? currentProfile?.sourceText ?? "",
         cleanedText: request.body.cleanedText ?? currentProfile?.cleanedText ?? "",
         extractionNotes: request.body.extractionNotes ?? currentProfile?.extractionNotes ?? "",
