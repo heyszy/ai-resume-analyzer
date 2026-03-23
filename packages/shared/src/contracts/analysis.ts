@@ -12,18 +12,43 @@ import {
 } from "./common";
 
 export const analysisStreamQuerySchema = z.object({
-  jdId: uuidSchema,
+  candidateIds: z.string().trim().min(1),
+  jdId: uuidSchema.optional(),
+  regenerateScore: z
+    .preprocess((value) => {
+      if (typeof value === "undefined") {
+        return undefined;
+      }
+
+      if (typeof value === "boolean") {
+        return value;
+      }
+
+      if (typeof value === "string") {
+        if (value === "true") {
+          return true;
+        }
+
+        if (value === "false") {
+          return false;
+        }
+      }
+
+      return value;
+    }, z.boolean())
+    .optional()
+    .default(false),
 });
 
 export const analysisStartResponseSchema = z.object({
-  candidateId: uuidSchema,
-  jdId: uuidSchema,
+  candidateIds: z.array(uuidSchema).min(1),
   acceptedAt: isoDateTimeSchema,
-  processingStatus: candidateProcessingStatusSchema,
 });
 
 export const analysisProgressEventSchema = z.object({
   type: z.literal("progress"),
+  candidateId: uuidSchema,
+  processingStatus: candidateProcessingStatusSchema,
   stage: z.string().min(1),
   message: z.string().min(1),
   progress: z.number().int().min(0).max(100),
@@ -47,6 +72,7 @@ export const analysisScorePartialEventSchema = z.object({
   jdId: uuidSchema,
   stage: z.string().min(1),
   message: z.string().min(1),
+  commentary: z.string().optional(),
 });
 
 export const analysisScoreFinalEventSchema = z.object({
@@ -58,6 +84,7 @@ export const analysisScoreFinalEventSchema = z.object({
 
 export const analysisErrorEventSchema = z.object({
   type: z.literal("error"),
+  candidateId: uuidSchema,
   code: z.string().min(1),
   message: z.string().min(1),
   details: z.unknown().optional(),
@@ -66,7 +93,6 @@ export const analysisErrorEventSchema = z.object({
 export const analysisDoneEventSchema = z.object({
   type: z.literal("done"),
   candidateId: uuidSchema,
-  jdId: uuidSchema,
 });
 
 export const analysisStreamEventSchema = z.discriminatedUnion("type", [
