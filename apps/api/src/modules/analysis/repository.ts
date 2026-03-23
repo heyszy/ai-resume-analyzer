@@ -7,8 +7,23 @@ import { getDatabase } from "../../lib/db";
 import { AnalysisError } from "./errors";
 
 type CandidateProfile = z.infer<typeof candidateProfileSchema>;
-type CandidateProfileBasicInfo = CandidateProfile["basicInfo"];
-type CandidateProfileProjectExperience = CandidateProfile["projectExperiences"][number];
+type CandidateProfileInsert = typeof candidateProfiles.$inferInsert;
+type CandidateProfilePayload = Pick<
+  CandidateProfileInsert,
+  | "basicInfo"
+  | "educationHistory"
+  | "workExperiences"
+  | "skillTags"
+  | "projectExperiences"
+  | "sourceText"
+  | "cleanedText"
+  | "extractionNotes"
+  | "extractedAt"
+>;
+type CandidateProfileBasicInfo = CandidateProfilePayload["basicInfo"];
+type CandidateProfileEducation = CandidateProfilePayload["educationHistory"][number];
+type CandidateProfileWorkExperience = CandidateProfilePayload["workExperiences"][number];
+type CandidateProfileProjectExperience = CandidateProfilePayload["projectExperiences"][number];
 
 function stripNullChars(value: string) {
   return value.split("\0").join("");
@@ -36,37 +51,47 @@ function sanitizeProjectExperience(
   };
 }
 
-function sanitizeCandidateProfile(profile: CandidateProfile): CandidateProfile {
+function sanitizeEducation(
+  education: CandidateProfile["educationHistory"][number],
+): CandidateProfileEducation {
   return {
-    ...profile,
+    school: education.school ? stripNullChars(education.school) : education.school,
+    major: education.major ? stripNullChars(education.major) : education.major,
+    degree: education.degree ? stripNullChars(education.degree) : education.degree,
+    graduationTime: education.graduationTime
+      ? stripNullChars(education.graduationTime)
+      : education.graduationTime,
+  };
+}
+
+function sanitizeWorkExperience(
+  workExperience: CandidateProfile["workExperiences"][number],
+): CandidateProfileWorkExperience {
+  return {
+    companyName: workExperience.companyName
+      ? stripNullChars(workExperience.companyName)
+      : workExperience.companyName,
+    position: workExperience.position
+      ? stripNullChars(workExperience.position)
+      : workExperience.position,
+    timeRange: workExperience.timeRange
+      ? stripNullChars(workExperience.timeRange)
+      : workExperience.timeRange,
+    summary: workExperience.summary ? stripNullChars(workExperience.summary) : workExperience.summary,
+  };
+}
+
+function sanitizeCandidateProfile(profile: CandidateProfile): CandidateProfilePayload {
+  return {
     basicInfo: sanitizeBasicInfo(profile.basicInfo),
-    educationHistory: profile.educationHistory.map((education) => ({
-      school: education.school ? stripNullChars(education.school) : education.school,
-      major: education.major ? stripNullChars(education.major) : education.major,
-      degree: education.degree ? stripNullChars(education.degree) : education.degree,
-      graduationTime: education.graduationTime
-        ? stripNullChars(education.graduationTime)
-        : education.graduationTime,
-    })),
-    workExperiences: profile.workExperiences.map((workExperience) => ({
-      companyName: workExperience.companyName
-        ? stripNullChars(workExperience.companyName)
-        : workExperience.companyName,
-      position: workExperience.position
-        ? stripNullChars(workExperience.position)
-        : workExperience.position,
-      timeRange: workExperience.timeRange
-        ? stripNullChars(workExperience.timeRange)
-        : workExperience.timeRange,
-      summary: workExperience.summary
-        ? stripNullChars(workExperience.summary)
-        : workExperience.summary,
-    })),
+    educationHistory: profile.educationHistory.map(sanitizeEducation),
+    workExperiences: profile.workExperiences.map(sanitizeWorkExperience),
     skillTags: profile.skillTags.map(stripNullChars),
     projectExperiences: profile.projectExperiences.map(sanitizeProjectExperience),
     sourceText: stripNullChars(profile.sourceText),
     cleanedText: stripNullChars(profile.cleanedText),
     extractionNotes: stripNullChars(profile.extractionNotes),
+    extractedAt: profile.extractedAt ? new Date(profile.extractedAt) : new Date(),
   };
 }
 
@@ -178,22 +203,23 @@ export async function completeCandidateAnalysis(args: {
   const { candidateId, pageCount } = args;
   const profile = sanitizeCandidateProfile(args.profile);
   const db = getDatabase();
+  const profileValues: CandidateProfileInsert = {
+    candidateId,
+    basicInfo: profile.basicInfo,
+    educationHistory: profile.educationHistory,
+    workExperiences: profile.workExperiences,
+    skillTags: profile.skillTags,
+    projectExperiences: profile.projectExperiences,
+    sourceText: profile.sourceText,
+    cleanedText: profile.cleanedText,
+    extractionNotes: profile.extractionNotes,
+    extractedAt: profile.extractedAt,
+    updatedAt: new Date(),
+  };
 
   await db
     .insert(candidateProfiles)
-    .values({
-      candidateId,
-      basicInfo: profile.basicInfo,
-      educationHistory: profile.educationHistory,
-      workExperiences: profile.workExperiences,
-      skillTags: profile.skillTags,
-      projectExperiences: profile.projectExperiences,
-      sourceText: profile.sourceText,
-      cleanedText: profile.cleanedText,
-      extractionNotes: profile.extractionNotes,
-      extractedAt: profile.extractedAt ? new Date(profile.extractedAt) : new Date(),
-      updatedAt: new Date(),
-    })
+    .values(profileValues)
     .onConflictDoUpdate({
       target: candidateProfiles.candidateId,
       set: {
@@ -205,7 +231,7 @@ export async function completeCandidateAnalysis(args: {
         sourceText: profile.sourceText,
         cleanedText: profile.cleanedText,
         extractionNotes: profile.extractionNotes,
-        extractedAt: profile.extractedAt ? new Date(profile.extractedAt) : new Date(),
+        extractedAt: profile.extractedAt,
         updatedAt: new Date(),
       },
     });
