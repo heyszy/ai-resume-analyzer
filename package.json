@@ -7,6 +7,9 @@
     "node": "22.x"
   },
   "scripts": {
+    "db:generate": "pnpm --filter @ai-resume-analyzer/api db:generate",
+    "db:migrate": "pnpm --filter @ai-resume-analyzer/api db:migrate",
+    "db:push": "pnpm --filter @ai-resume-analyzer/api db:push",
     "dev:web": "pnpm --filter web dev",
     "dev:api": "pnpm --filter @ai-resume-analyzer/api dev",
     "format": "biome format --write .",
