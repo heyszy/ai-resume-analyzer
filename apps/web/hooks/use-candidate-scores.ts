@@ -8,7 +8,6 @@ export function useCandidateScores(candidateId: string | null, jdId: string | nu
   const key = getCandidateScoresKey(candidateId, jdId);
 
   return useSWR(key, () => fetchCandidateScores(candidateId ?? "", jdId ?? undefined), {
-    keepPreviousData: true,
     revalidateOnFocus: false,
   });
 }

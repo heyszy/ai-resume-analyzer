@@ -214,14 +214,21 @@ export function WorkspaceHome() {
     (candidate) => candidate.id === selectedCandidateId,
   );
   const selectedCandidate = useMemo(() => {
-    const baseCandidate = selectedCandidateDetail ?? selectedCandidateFromList ?? null;
+    const matchedDetail =
+      selectedCandidateDetail?.id === selectedCandidateId ? selectedCandidateDetail : null;
+    const baseCandidate = matchedDetail ?? selectedCandidateFromList ?? null;
 
     if (!baseCandidate) {
       return null;
     }
 
     return mergeCandidateView(baseCandidate, candidateLivePatchById[baseCandidate.id]);
-  }, [candidateLivePatchById, selectedCandidateDetail, selectedCandidateFromList]);
+  }, [
+    candidateLivePatchById,
+    selectedCandidateDetail,
+    selectedCandidateFromList,
+    selectedCandidateId,
+  ]);
   const activeJd = useMemo(
     () => jds.find((jd) => jd.id === activeJdId) ?? jds.find((jd) => jd.isActive) ?? jds[0] ?? null,
     [activeJdId, jds],

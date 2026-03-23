@@ -126,7 +126,9 @@ export function CandidateDetailPanel({
             <Select
               value={candidate.status}
               onValueChange={(value) => onStatusChange(value as WorkspaceCandidateStatus)}
-              disabled={isUpdatingStatus || isUpdatingProfile || isReanalyzing || isDeletingCandidate}
+              disabled={
+                isUpdatingStatus || isUpdatingProfile || isReanalyzing || isDeletingCandidate
+              }
             >
               <SelectTrigger className="h-11 w-[220px] bg-background">
                 <SelectValue placeholder="选择状态" />
@@ -145,7 +147,9 @@ export function CandidateDetailPanel({
                 type="button"
                 variant="outline"
                 className="h-11 px-3"
-                disabled={isUpdatingProfile || isUpdatingStatus || isReanalyzing || isDeletingCandidate}
+                disabled={
+                  isUpdatingProfile || isUpdatingStatus || isReanalyzing || isDeletingCandidate
+                }
                 onClick={() => setEditorDialogState({ candidateId, open: true })}
               >
                 <PencilLine className="size-4" />
@@ -157,7 +161,9 @@ export function CandidateDetailPanel({
               type="button"
               variant="outline"
               className="h-11 px-3"
-              disabled={isUpdatingProfile || isUpdatingStatus || isReanalyzing || isDeletingCandidate}
+              disabled={
+                isUpdatingProfile || isUpdatingStatus || isReanalyzing || isDeletingCandidate
+              }
               onClick={() => onReanalyze(candidateId)}
             >
               <RefreshCw className={`size-4 ${isReanalyzing ? "animate-spin" : ""}`} />
@@ -168,7 +174,9 @@ export function CandidateDetailPanel({
               type="button"
               variant="destructive"
               className="h-11 px-3"
-              disabled={isDeletingCandidate || isUpdatingStatus || isUpdatingProfile || isReanalyzing}
+              disabled={
+                isDeletingCandidate || isUpdatingStatus || isUpdatingProfile || isReanalyzing
+              }
               onClick={() => setDeleteDialogState({ candidateId, open: true })}
             >
               <Trash2 className="size-4" />

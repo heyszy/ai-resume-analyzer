@@ -8,7 +8,6 @@ export function useCandidateDetail(candidateId: string | null) {
   const key = getCandidateDetailKey(candidateId);
 
   return useSWR(key, () => fetchCandidateDetail(candidateId ?? ""), {
-    keepPreviousData: true,
     revalidateOnFocus: false,
   });
 }

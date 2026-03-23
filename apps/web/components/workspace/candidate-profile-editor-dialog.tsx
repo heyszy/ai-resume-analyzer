@@ -1,7 +1,7 @@
 "use client";
 
 import { PencilLine, Plus, Trash2 } from "lucide-react";
-import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { type Dispatch, type ReactNode, type SetStateAction, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -11,11 +11,11 @@ import type { CandidateProfileUpdateInput } from "@/lib/candidates";
 
 import {
   buildCandidateProfileUpdateInput,
+  type CandidateProfileEditorDraft,
   createCandidateProfileEditorDraft,
   createEmptyEducationItem,
   createEmptyProjectExperienceItem,
   createEmptyWorkExperienceItem,
-  type CandidateProfileEditorDraft,
 } from "./candidate-profile-editor";
 import type { WorkspaceCandidate, WorkspaceCandidateSummary } from "./workspace-model";
 
@@ -183,12 +183,14 @@ export function CandidateProfileEditorDialog({
           <div className="space-y-3">
             {draft.educationHistory.map((item, index) => (
               <EditableCard
-                key={`education-${index}`}
+                key={item.tempId}
                 title={`教育经历 ${index + 1}`}
                 onRemove={() =>
                   setDraft((state) => ({
                     ...state,
-                    educationHistory: state.educationHistory.filter((_, itemIndex) => itemIndex !== index),
+                    educationHistory: state.educationHistory.filter(
+                      (_, itemIndex) => itemIndex !== index,
+                    ),
                   }))
                 }
               >
@@ -255,12 +257,14 @@ export function CandidateProfileEditorDialog({
           <div className="space-y-3">
             {draft.workExperiences.map((item, index) => (
               <EditableCard
-                key={`work-${index}`}
+                key={item.tempId}
                 title={`工作经历 ${index + 1}`}
                 onRemove={() =>
                   setDraft((state) => ({
                     ...state,
-                    workExperiences: state.workExperiences.filter((_, itemIndex) => itemIndex !== index),
+                    workExperiences: state.workExperiences.filter(
+                      (_, itemIndex) => itemIndex !== index,
+                    ),
                   }))
                 }
               >
@@ -296,7 +300,11 @@ export function CandidateProfileEditorDialog({
                     />
                   </Field>
                   <div />
-                  <Field label="工作内容摘要" htmlFor={`work-summary-${index}`} className="md:col-span-2">
+                  <Field
+                    label="工作内容摘要"
+                    htmlFor={`work-summary-${index}`}
+                    className="md:col-span-2"
+                  >
                     <Textarea
                       id={`work-summary-${index}`}
                       value={item.summary ?? ""}
@@ -328,7 +336,7 @@ export function CandidateProfileEditorDialog({
           <div className="space-y-3">
             {draft.projectExperiences.map((item, index) => (
               <EditableCard
-                key={`project-${index}`}
+                key={item.tempId}
                 title={`项目经历 ${index + 1}`}
                 onRemove={() =>
                   setDraft((state) => ({
@@ -418,7 +426,12 @@ export function CandidateProfileEditorDialog({
         ) : null}
 
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isSubmitting}
+          >
             取消
           </Button>
           <Button type="button" onClick={() => void handleSubmit()} disabled={isSubmitting}>
