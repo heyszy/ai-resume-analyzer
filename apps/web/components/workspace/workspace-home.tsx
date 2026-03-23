@@ -607,8 +607,7 @@ export function WorkspaceHome() {
       [candidate.id]: candidate,
     }));
     selectCandidate(candidate.id);
-
-    void mutateCandidateList((current) => upsertCandidateToList(current, candidate), false);
+    setCurrentPage(1);
   }
 
   function handleUploadBatchCompleted(candidates: WorkspaceCandidate[]) {
@@ -616,7 +615,10 @@ export function WorkspaceHome() {
 
     if (candidates.length > 0) {
       selectCandidate(candidates[0].id);
+      setCurrentPage(1);
     }
+
+    void mutateCandidateList();
   }
 
   function handlePageChange(nextPage: number) {
@@ -674,14 +676,21 @@ export function WorkspaceHome() {
       const remainingCandidates = mergedCandidateList.filter(
         (candidate) => candidate.id !== candidateId,
       );
+      const shouldMoveToPreviousPage = currentPage > 1 && remainingCandidates.length === 0;
+
       if (selectedCandidateId === candidateId) {
-        selectCandidate(remainingCandidates[0]?.id ?? null);
+        selectCandidate(shouldMoveToPreviousPage ? null : (remainingCandidates[0]?.id ?? null));
       }
-      if (remainingCandidates.length === 0 && currentPage > 1) {
+
+      if (shouldMoveToPreviousPage) {
         setCurrentPage(currentPage - 1);
       }
 
       await mutateCandidateList((current) => removeCandidateFromList(current, candidateId), false);
+
+      if (!shouldMoveToPreviousPage) {
+        await mutateCandidateList();
+      }
 
       if (selectedCandidateId === candidateId) {
         await mutateSelectedCandidateDetail(undefined, false);
@@ -845,8 +854,8 @@ export function WorkspaceHome() {
         <CandidateListPanel
           candidates={mergedCandidateList}
           total={candidateList?.total ?? mergedCandidateList.length}
-          page={candidateList?.page ?? currentPage}
-          pageSize={candidateList?.pageSize ?? pageSize}
+          page={currentPage}
+          pageSize={pageSize}
           selectedCandidateId={selectedCandidate?.id ?? selectedCandidateId}
           searchKeyword={searchKeyword}
           isUploadPanelOpen={isUploadPanelOpen}
@@ -915,8 +924,8 @@ export function WorkspaceHome() {
         open={isCandidateTableOpen}
         candidates={mergedCandidateList}
         total={candidateList?.total ?? mergedCandidateList.length}
-        page={candidateList?.page ?? currentPage}
-        pageSize={candidateList?.pageSize ?? pageSize}
+        page={currentPage}
+        pageSize={pageSize}
         sortKey={candidateSortKey}
         statusFilter={candidateStatusFilter}
         searchKeyword={searchKeyword}
@@ -931,30 +940,6 @@ export function WorkspaceHome() {
       />
     </div>
   );
-}
-
-function upsertCandidateToList(
-  current: CandidateListResponse | undefined,
-  candidate: WorkspaceCandidate,
-): CandidateListResponse {
-  const items = current?.items ?? [];
-  const index = items.findIndex((item) => item.id === candidate.id);
-
-  if (index >= 0) {
-    return {
-      page: current?.page ?? 1,
-      pageSize: current?.pageSize ?? 10,
-      total: current?.total ?? items.length,
-      items: items.map((item) => (item.id === candidate.id ? candidate : item)),
-    };
-  }
-
-  return {
-    page: current?.page ?? 1,
-    pageSize: current?.pageSize ?? 10,
-    total: (current?.total ?? items.length) + 1,
-    items: [candidate, ...items],
-  };
 }
 
 function removeCandidateFromList(
