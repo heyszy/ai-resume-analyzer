@@ -12,6 +12,7 @@
     "db:push": "pnpm --filter @ai-resume-analyzer/api db:push",
     "dev:web": "pnpm --filter web dev",
     "dev:api": "pnpm --filter @ai-resume-analyzer/api dev",
+    "start:api": "pnpm --filter @ai-resume-analyzer/api start",
     "format": "biome format --write .",
     "lint": "biome check .",
     "typecheck": "pnpm -r typecheck"
