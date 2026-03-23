@@ -19,6 +19,7 @@ export function buildApp() {
   app.register(envPlugin);
   app.register(cors, {
     origin: true,
+    methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
   });
   app.register(sensible);
   app.register(multipart, {

@@ -6,7 +6,8 @@ export type AppEnv = {
   PORT: number;
   DATABASE_URL?: string;
   BLOB_READ_WRITE_TOKEN?: string;
-  OPENAI_API_KEY?: string;
+  AI_BASE_URL?: string;
+  AI_API_KEY?: string;
   AI_MODEL?: string;
 };
 
@@ -33,7 +34,10 @@ export const appEnvSchema = {
     BLOB_READ_WRITE_TOKEN: {
       type: "string",
     },
-    OPENAI_API_KEY: {
+    AI_BASE_URL: {
+      type: "string",
+    },
+    AI_API_KEY: {
       type: "string",
     },
     AI_MODEL: {

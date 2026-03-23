@@ -1,37 +1,37 @@
 import { randomUUID } from "node:crypto";
 import { basename, extname } from "node:path";
 
-import type { MultipartFile, MultipartValue } from "@fastify/multipart";
+import type { MultipartFile } from "@fastify/multipart";
 
+import { createUploadedCandidate, removeUploadedCandidate } from "../candidates";
 import { UploadError } from "./errors";
 import { removeFileIfExists, resolveUploadedFilePath, saveUploadedPdf } from "./storage";
-import type { UploadItem, UploadPart, UploadRequestFields, UploadResponse } from "./types";
+import type { UploadItem, UploadPart, UploadResponse } from "./types";
 
 const MAX_FILES = 10;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const PDF_MIME_TYPE = "application/pdf";
-
-function toText(value: MultipartValue["value"] | undefined) {
-  if (typeof value === "string") {
-    return value.trim();
-  }
-
-  if (Buffer.isBuffer(value)) {
-    return value.toString("utf8").trim();
-  }
-
-  return "";
-}
-
-function normalizeFields(fields: Partial<UploadRequestFields>): UploadRequestFields {
-  return {
-    candidateSource: fields.candidateSource?.trim() || undefined,
-  };
-}
+const PDF_MIME_TYPE: "application/pdf" = "application/pdf";
 
 function deriveDisplayName(fileName: string) {
   const stem = basename(fileName, extname(fileName)).trim();
   return stem || "未命名简历";
+}
+
+function mapCandidateRecordToUploadItem(
+  candidate: Awaited<ReturnType<typeof createUploadedCandidate>>,
+): UploadItem {
+  return {
+    candidateId: candidate.id,
+    displayName: candidate.displayName,
+    originalFileName: candidate.originalFileName,
+    originalFilePath: candidate.originalFilePath,
+    mimeType: PDF_MIME_TYPE,
+    fileSize: candidate.fileSize,
+    pageCount: candidate.pageCount,
+    status: candidate.status,
+    processingStatus: candidate.processingStatus,
+    uploadedAt: candidate.uploadedAt.toISOString(),
+  };
 }
 
 function assertPdfFile(file: MultipartFile) {
@@ -55,42 +55,46 @@ async function buildCandidateItem(file: MultipartFile): Promise<UploadItem> {
   const candidateId = randomUUID();
   const originalFileName = file.filename;
   const blobPath = resolveUploadedFilePath(candidateId, originalFileName);
-  const uploadedAt = new Date().toISOString();
 
   const storedFile = await saveUploadedPdf(file.file, blobPath, MAX_FILE_SIZE);
+  try {
+    const candidate = await createUploadedCandidate({
+      id: candidateId,
+      displayName: deriveDisplayName(originalFileName),
+      originalFileName,
+      originalFilePath: storedFile.pathname,
+      mimeType: PDF_MIME_TYPE,
+      fileSize: storedFile.fileSize,
+      pageCount: 0,
+      uploadedAt: new Date(),
+    });
 
-  return {
-    candidateId,
-    displayName: deriveDisplayName(originalFileName),
-    originalFileName,
-    originalFilePath: storedFile.pathname,
-    mimeType: PDF_MIME_TYPE,
-    fileSize: storedFile.fileSize,
-    pageCount: 0,
-    status: "pending_review",
-    processingStatus: "uploaded",
-    uploadedAt,
-  };
+    return mapCandidateRecordToUploadItem(candidate);
+  } catch (error) {
+    await Promise.allSettled([
+      removeFileIfExists(storedFile.pathname),
+      removeUploadedCandidate(candidateId),
+    ]);
+    throw error;
+  }
 }
 
 async function rollbackFiles(uploadedItems: UploadItem[]) {
   for (const item of uploadedItems) {
-    await removeFileIfExists(item.originalFilePath);
+    await Promise.allSettled([
+      removeFileIfExists(item.originalFilePath),
+      removeUploadedCandidate(item.candidateId),
+    ]);
   }
 }
 
 export async function handleUploadFiles(parts: AsyncIterable<UploadPart>) {
-  const fields: Partial<UploadRequestFields> = {};
   const uploadedItems: UploadItem[] = [];
   let fileCount = 0;
 
   try {
     for await (const part of parts) {
       if (part.type === "field") {
-        if (part.fieldname === "candidateSource") {
-          fields.candidateSource = toText(part.value);
-        }
-
         continue;
       }
 
@@ -110,7 +114,6 @@ export async function handleUploadFiles(parts: AsyncIterable<UploadPart>) {
     }
 
     return {
-      candidateSource: normalizeFields(fields).candidateSource ?? null,
       totalFiles: uploadedItems.length,
       items: uploadedItems,
     } satisfies UploadResponse;
