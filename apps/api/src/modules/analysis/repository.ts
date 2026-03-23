@@ -20,7 +20,18 @@ type CandidateProfilePayload = Pick<
   | "extractionNotes"
   | "extractedAt"
 >;
-type CandidateProfileBasicInfo = CandidateProfilePayload["basicInfo"];
+type CandidateProfileBasicInfoInput = {
+  name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  city?: string | null;
+};
+type CandidateProfileBasicInfo = {
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  city: string | null;
+};
 type CandidateProfileEducation = CandidateProfilePayload["educationHistory"][number];
 type CandidateProfileWorkExperience = CandidateProfilePayload["workExperiences"][number];
 type CandidateProfileProjectExperience = CandidateProfilePayload["projectExperiences"][number];
@@ -29,12 +40,12 @@ function stripNullChars(value: string) {
   return value.split("\0").join("");
 }
 
-function sanitizeBasicInfo(basicInfo: CandidateProfileBasicInfo): CandidateProfileBasicInfo {
+function sanitizeBasicInfo(basicInfo: CandidateProfileBasicInfoInput): CandidateProfileBasicInfo {
   return {
-    name: basicInfo.name ? stripNullChars(basicInfo.name) : basicInfo.name,
-    phone: basicInfo.phone ? stripNullChars(basicInfo.phone) : basicInfo.phone,
-    email: basicInfo.email ? stripNullChars(basicInfo.email) : basicInfo.email,
-    city: basicInfo.city ? stripNullChars(basicInfo.city) : basicInfo.city,
+    name: basicInfo.name ? stripNullChars(basicInfo.name) : null,
+    phone: basicInfo.phone ? stripNullChars(basicInfo.phone) : null,
+    email: basicInfo.email ? stripNullChars(basicInfo.email) : null,
+    city: basicInfo.city ? stripNullChars(basicInfo.city) : null,
   };
 }
 
